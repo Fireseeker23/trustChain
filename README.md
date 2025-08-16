@@ -1,13 +1,6 @@
 # trustChain
 
 
-# 🏦 Crypto Credit Scoring System
-
-This system calculates a **credit score** for Ethereum wallets based on on-chain financial behavior.
-It considers repayment history, wallet activity, asset composition, and staking commitment to provide a transparent and fair evaluation.
-
----
-
 ##  Factors Considered
 
 ### 1. **On-Time Repayment Rate (`on_time_repayment_rate`)**
