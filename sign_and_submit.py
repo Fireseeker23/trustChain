@@ -15,7 +15,7 @@ load_dotenv()
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY") 
 
 api = EtherscanClient(ETHERSCAN_API_KEY)
-factors = extract_wallet_factors("0xC6093Fd9cc143F9f058938868b2df2daF9A91d28", api=api)
+factors = extract_wallet_factors("0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97", api=api)
 print(factors)
 
 

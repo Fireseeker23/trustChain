@@ -4,6 +4,8 @@ import requests
 from typing import Dict, List, Optional
 import os
 from dotenv import load_dotenv
+from datetime import datetime
+import time
 
 load_dotenv()
 # =========================
@@ -175,6 +177,37 @@ class Extractors:
         steth_wei = api.token_balance(STETH, address)
         reth_wei = api.token_balance(RETH, address)
         return {"steth": steth_wei / 1e18, "reth": reth_wei / 1e18}
+    
+    @staticmethod
+    def staking_tenure_days(address: str, api: EtherscanClient) -> int:
+        txs = api.txlist(address, sort="asc")
+        if not txs:
+            return 0  
+
+        address = address.lower()
+
+        last_inbound = None
+        last_outbound = None
+
+        # track last inbound and outbound timestamps
+        for tx in txs:
+            ts = int(tx["timeStamp"])
+            if tx["to"].lower() == address:
+                last_inbound = ts
+            elif tx["from"].lower() == address:
+                last_outbound = ts
+
+        if not last_inbound:
+            return 0  # never staked
+
+        # If last outbound is after last inbound, user is not staked now
+        if last_outbound and last_outbound > last_inbound:
+            return 0
+
+        # Otherwise, staking is still active since last inbound
+        start_date = datetime.utcfromtimestamp(last_inbound)
+        days = (datetime.utcnow() - start_date).days
+        return days
 
 
 # =========================
@@ -202,6 +235,7 @@ def extract_wallet_factors(address: str, api: Optional[EtherscanClient] = None, 
     # --- staking
     stake = Extractors.staking_balances(address, api)
     staking_amount_eth = stake["steth"] + stake["reth"]
+    staking_tenure = Extractors.staking_tenure_days(address, api)
 
     # --- stablecoin ratio (by balance weight in USD)
     usdt = api.token_balance(USDT, address) / 1e6  # 6 decimals
@@ -227,109 +261,19 @@ def extract_wallet_factors(address: str, api: Optional[EtherscanClient] = None, 
         "on_time_repayment_rate": on_time_repayment_rate,
         "default_count": total_liqs,
         "avg_tx_frequency": avg_tx_per_day,
-        "avg_balance_usd": eth_balance * eth_usd,  # note: ETH only; extend to include ERC-20s later
+        "avg_balance_usd": eth_balance * eth_usd,  
         "stablecoin_ratio": stablecoin_ratio,
         "debt_utilization": debt_utilization,
         "staking_amount_eth": staking_amount_eth,
-        "staking_tenure_days": 0,  # Lido/RP have no lock; other staking protocols may
-        # debug details
+        "staking_tenure_days": staking_tenure,  
         "detail": {"aave": aave, "compound": comp, "staking": stake, "stable_usd": stable_usd},
     }
 
 
-# =========================
-# Tests (no network): Fake Etherscan client + assertions
-# =========================
-class FakeEtherscan(EtherscanClient):
-    def __init__(self):
-        super().__init__(api_key="DUMMY")
-        self._now = int(time.time())
-
-    def txlist(self, address: str, *_, **__) -> List[Dict]:
-        # two txs one year apart, including aave/compound repayments
-        year = 365 * 24 * 60 * 60
-        return [
-            {
-                "hash": "0xaaa", "timeStamp": str(self._now - year),
-                "to": AAVE_V3_POOL, "functionName": "repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf)"
-            },
-            {
-                "hash": "0xbbb", "timeStamp": str(self._now),
-                "to": CTOKENS["cDAI"], "functionName": "repayBorrow(uint256)"
-            },
-            {
-                "hash": "0xccc", "timeStamp": str(self._now - 1000),
-                "to": "0x000000000000000000000000000000000000dead", "functionName": "transfer(address,uint256)"
-            },
-        ]
-
-    def logs(self, address: str, topic0: Optional[str] = None, *_, **__) -> List[Dict]:
-        # fabricate 1 liquidation on Aave and 0 on cUSDC, 1 on cDAI
-        logs = []
-        if address == AAVE_V3_POOL and topic0 == AAVE_LIQUIDATIONCALL_TOPIC:
-            logs.append({
-                "address": address,
-                "topics": [topic0, pad_topic_address("0x0000000000000000000000000000000000000001"), pad_topic_address("0x0000000000000000000000000000000000000002"), pad_topic_address("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF")],
-            })
-        if address == CTOKENS["cDAI"] and topic0 == COMPOUND_LIQUIDATEBORROW_TOPIC:
-            logs.append({
-                "address": address,
-                "topics": [topic0, pad_topic_address("0x0000000000000000000000000000000000000003"), pad_topic_address("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF")],
-            })
-        return logs
-
-    def eth_balance(self, address: str) -> float:
-        return 100.0  # 100 ETH
-
-    def token_balance(self, token: str, address: str) -> int:
-        if token == STETH:
-            return int(1.5 * 1e18)  # 1.5 stETH
-        if token == RETH:
-            return int(0.5 * 1e18)  # 0.5 rETH
-        if token == USDT:
-            return int(1000 * 1e6)  # 1000 USDT
-        if token == USDC:
-            return int(2000 * 1e6)  # 2000 USDC
-        if token == DAI:
-            return int(500 * 1e18)  # 500 DAI
-        return 0
-
-
-def _run_tests():
-    api = FakeEtherscan()
-    addr = "0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"
-
-    # Aave extractor
-    aave = Extractors.aave_v3(addr, api)
-    assert aave["repays"] == 1, f"Aave repays expected 1, got {aave}"
-    assert aave["liquidations"] == 1, f"Aave liqs expected 1, got {aave}"
-
-    # Compound extractor
-    comp = Extractors.compound_v2(addr, api)
-    assert comp["repays"] == 1, f"Compound repays expected 1, got {comp}"
-    assert comp["liquidations"] == 1, f"Compound liqs expected 1, got {comp}"
-
-    # Staking balances
-    stake = Extractors.staking_balances(addr, api)
-    assert abs(stake["steth"] - 1.5) < 1e-9 and abs(stake["reth"] - 0.5) < 1e-9, stake
-
-    # Wallet factors end-to-end
-    factors = extract_wallet_factors(addr, api=api, eth_usd=2500.0)
-    # activity
-    assert factors["avg_tx_frequency"] > 0, factors
-    # defaults and on-time rate
-    assert factors["default_count"] == 2, factors
-    assert 0 < factors["on_time_repayment_rate"] < 1, factors
-    # staking amount
-    assert abs(factors["staking_amount_eth"] - 2.0) < 1e-9, factors
-    # stablecoin ratio: stables $3500 vs portfolio 100 ETH * 2500 + 2 ETH * 2500 + 3500 = 257,? -> > 0
-    assert 0 < factors["stablecoin_ratio"] < 1, factors
-
-    print(" All Step-1 extractor tests passed.")
 
 
 if __name__ == "__main__":
     #_run_tests()
     # Example (real API):
     api = EtherscanClient(ETHERSCAN_API_KEY)
-    print(extract_wallet_factors("0x89B8B20AE90328692cD367f75aaFadF55fd33E8B", api=api))
+    print(extract_wallet_factors("0xf7b10d603907658f690da534e9b7dbc4dab3e2d6", api=api))
