@@ -80,14 +80,14 @@
    * **Debt Utilization** → penalized aggressively at higher levels.
 
 ---
-**Weights**
-weights = {
-    "on_time_repayment_rate": 25,
-    "default_count": 25,
-    "avg_tx_frequency": 10,
-    "avg_balance_usd": 10,
-    "stablecoin_ratio": 10,
-    "debt_utilization": 10,
-    "staking_amount_eth": 10,
-}
+**Weights**  
+weights = {  
+    "on_time_repayment_rate": 25,  
+    "default_count": 25,  
+    "avg_tx_frequency": 10,  
+    "avg_balance_usd": 10,  
+    "stablecoin_ratio": 10,  
+    "debt_utilization": 10,  
+    "staking_amount_eth": 10,  
+}  
 
