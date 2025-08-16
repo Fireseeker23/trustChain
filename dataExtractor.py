@@ -6,6 +6,12 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 import time
+import requests
+
+def get_eth_price():
+    url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+    resp = requests.get(url)
+    return resp.json()["ethereum"]["usd"]
 
 load_dotenv()
 # =========================
@@ -105,6 +111,34 @@ class EtherscanClient:
             params["topic0"] = topic0
         data = self._get(params)
         return data.get("result", []) if data.get("status") in ("0", "1") else []
+
+
+
+def compute_debt_utilization(address: str, api: EtherscanClient) -> float:
+    # protocol data
+    aave = Extractors.aave_v3(address, api)
+    comp = Extractors.compound_v2(address, api)
+    total_liqs = aave["liquidations"] + comp["liquidations"]
+    total_repays = aave["repays"] + comp["repays"]
+
+    # treat repays as borrow activity proxy
+    total_borrows = total_liqs + total_repays
+
+    # portfolio value in USD
+    eth_balance = api.eth_balance(address)
+    stake = Extractors.staking_balances(address, api)
+    staked_eth = stake["steth"] + stake["reth"]
+    usdt = api.token_balance(USDT, address) / 1e6
+    usdc = api.token_balance(USDC, address) / 1e6
+    dai  = api.token_balance(DAI, address)  / 1e18
+    stable_usd = usdt + usdc + dai
+    eth_usd = get_eth_price()
+    print(eth_usd)
+    collateral_usd = (eth_balance + staked_eth) * eth_usd + stable_usd
+
+    if (total_borrows + collateral_usd) == 0:
+        return 0.0
+    return total_borrows / (total_borrows + collateral_usd)
 
 
 # =========================
@@ -255,8 +289,7 @@ def extract_wallet_factors(address: str, api: Optional[EtherscanClient] = None, 
     on_time_repayment_rate = total_repays / max(1, (total_repays + total_liqs))
 
     # debt utilization would need credit line data (per-protocol); placeholder for now
-    debt_utilization = 0.0
-
+    debt_utilization = compute_debt_utilization(address, api)
     return {
         "on_time_repayment_rate": on_time_repayment_rate,
         "default_count": total_liqs,
