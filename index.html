@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circular Credit Score</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: #f0f2f5;
+            font-family: Arial, sans-serif;
+            margin: 0;
+        }
+
+        .circle-card {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .circle-card h1 {
+            position: absolute;
+            font-size: 2.5em;
+            margin: 0;
+            color: #333;
+        }
+
+        svg {
+            transform: rotate(-90deg);
+            position: absolute;
+        }
+
+        circle {
+            fill: none;
+            stroke-width: 15;
+            stroke-linecap: round;
+        }
+
+        .bg-circle {
+            stroke: #e0e0e0;
+        }
+
+        .progress-circle {
+            stroke: #4caf50;
+            transition: stroke-dashoffset 0.5s ease-in-out;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            border: none;
+            background: #4caf50;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="circle-card">
+            <svg width="250" height="250">
+                <circle class="bg-circle" cx="125" cy="125" r="100"></circle>
+                <circle class="progress-circle" cx="125" cy="125" r="100" stroke-dasharray="628" stroke-dashoffset="0">
+                </circle>
+            </svg>
+            <h1 id="score">0</h1>
+        </div>
+        <button onclick="updateScore()">Check Score</button>
+    </div>
+
+    <script>
+        const progressCircle = document.querySelector('.progress-circle');
+        const scoreText = document.getElementById('score');
+        const radius = 100;
+        const circumference = 2 * Math.PI * radius;
+        progressCircle.style.strokeDasharray = circumference;
+
+        // Fetch score from backend
+        const maxScore = 100; 
+        async function updateScore() {
+            try {
+                const res = await fetch('http://127.0.0.1:5000/score');
+                const data = await res.json();
+                const score = data.score;
+
+                scoreText.innerText = score;
+
+                const offset = circumference - (score / maxScore) * circumference;
+                progressCircle.style.strokeDashoffset = offset;
+            } catch (err) {
+                console.error("Error fetching score:", err);
+            }
+        }
+
+        // Initialize
+        updateScore();
+    </script>
+</body>
+
+</html>
